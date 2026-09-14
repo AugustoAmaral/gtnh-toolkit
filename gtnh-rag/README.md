@@ -41,7 +41,9 @@ another pack's world.
   multilingual and was used to build and test the corpus.
 - Optionally, a chat model in Ollama for `ask` (default `gemma4:31b-cloud`, an
   ollama.com cloud model; any local or cloud chat model configured in Ollama works).
-- Two client-side mod dumps to populate `data/raw/nesql/` and `data/raw/nerd/` (see below).
+- Two client-side mod dumps to populate `data/raw/nesql/` and `data/raw/nerd/` (see
+  below). Neither mod has a release compatible with GTNH 2.9, so both must be built from
+  source — see [`../docs/dump-mods.md`](../docs/dump-mods.md).
   `search` and `recipe` work with wiki-only data if you skip these, but recipe lookup and
   the `recipe`/`quest`/`nei` corpus sources need them.
 
@@ -58,13 +60,15 @@ if you omit it, see [Configuration](#configuration).
 ## Producing the recipe dumps
 
 Recipe, quest and NEI data are **not** downloaded automatically — they are captured in a
-running GTNH client and dropped into `data/raw/`:
+running GTNH client and dropped into `data/raw/`. Neither dump mod has a release
+compatible with GTNH 2.9, so both have to be built from source first; the full build and
+capture procedure lives in [`../docs/dump-mods.md`](../docs/dump-mods.md).
 
-- **nesql-exporter**: open the `/nesql` command in a creative singleplayer/dev world (the
-  export walks every recipe and item in the loaded mod set, ~1 hour). Copy the resulting
-  `nesql-db.script` to `data/raw/nesql/nesql-db.script`.
-- **NotEnoughRecipeDumps**: NEI → Tools → Dumps in the same client. Copy the resulting
-  `recipes.json` and `recipes_stacks.json` to `data/raw/nerd/`.
+In short: **nesql-exporter** dumps the full recipe/item/quest database via the `/nesql`
+chat command (~1 hour) into `nesql-db.script`/`nesql-db.properties`, and
+**NotEnoughRecipeDumps** dumps NEI recipes/recipe stacks not covered by nesql via NEI →
+Tools → Dumps (~5 minutes) into `recipes.json`/`recipes_stacks.json`. Copy those files
+into `data/raw/nesql/` and `data/raw/nerd/` respectively.
 
 Both dumps must come from the same pack version and, ideally, the same session — recipe
 and item ids are internal database ids assigned at dump time, not stable across dumps.

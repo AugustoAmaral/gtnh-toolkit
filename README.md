@@ -48,5 +48,15 @@ Python 3.11+ (3.11 for `tomllib`) and standard library only, except:
 - **No data is included.** Wiki text, recipe dumps, profiles and save dumps are yours to
   generate; the repo ships code and documentation only.
 
+## Rebuilding the data
+
+No data ships with this repo. The GTNH wiki is fetched automatically by `gtnh-rag
+fetch`. The recipe dumps that back `gtnh-rag recipe` and `ae2-tools` require building two
+client-side mods from source — neither has a release compatible with GTNH 2.9 — a full
+walkthrough is in [`docs/dump-mods.md`](docs/dump-mods.md). The NBT-reading tools in
+`ae2-tools/` need `nbtlib==2.0.4`; if installing it fails on a managed system Python, see
+the offline wheel-extraction fallback in the "Setup" section of
+[`ae2-tools/README.md`](ae2-tools/README.md).
+
 Pack version these were built and verified against: **2.9.0-beta-2** corpus, **2.9.0-beta-3**
 world. MIT licensed — see [`LICENSE`](LICENSE).
