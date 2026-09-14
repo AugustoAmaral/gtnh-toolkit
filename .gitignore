@@ -1,0 +1,18 @@
+# local data and build artifacts
+data/
+audits/
+*.json.gz
+*.collapsed
+*.collapsed.gz
+recipes.sqlite
+index.sqlite
+
+# local machine config
+gtnh_rag.toml
+
+# python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/

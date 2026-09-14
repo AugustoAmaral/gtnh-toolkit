@@ -1,0 +1,8 @@
+{"version": "test", "queries": [
+ {"queryItem": "1d0", "handlers": [
+   {"id": "codechicken.nei.recipe.FurnaceRecipeHandler", "name": "Smelting", "tabName": "Smelting",
+    "recipes": [{"generic": {"ingredients": ["4d0"], "otherStacks": [], "outItem": "1d0"}}]}]},
+ {"queryItem": "77d3", "handlers": [
+   {"id": "net.bdew.neiaddons.forestry.bees.BeeBreedingHandler", "name": "Bee Breeding", "tabName": "Bee Breeding",
+    "recipes": [{"generic": {"ingredients": [{"itemSlug": "77d4", "count": 1}, "77d5"], "otherStacks": [{"itemSlug": "77d3", "count": 1}], "outItem": "77d3"}}]}]}
+]}

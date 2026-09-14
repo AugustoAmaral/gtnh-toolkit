@@ -1,0 +1,7 @@
+data/
+gtnh_rag.toml
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/

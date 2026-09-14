@@ -1,0 +1,19 @@
+[project]
+name = "gtnh-rag"
+version = "0.1.0"
+description = "Retrieval-augmented Q&A and recipe lookup for GregTech: New Horizons"
+requires-python = ">=3.11"
+dependencies = ["numpy", "requests", "ijson"]
+
+[project.scripts]
+gtnh-rag = "gtnh_rag.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["gtnh_rag"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

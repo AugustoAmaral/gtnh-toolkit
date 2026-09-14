@@ -1,0 +1,21 @@
+{{NYI|version=2.9}}
+'''CropsNH''' is an [[Upcoming Features|Upcoming Feature]] for 2.9. See [[Industrial Farm]].
+
+{{Infobox Multiblock|name=LFTR|tier=IV|size=7 x 7 x 4|pollution=}}
+
+== Mechanics ==
+Crops need ''crop sticks''. The formula is <math>S = 6 + Gr</math>. {{Color|gray|Any casing}}
+
+Can be bred at {{HV}} but requires {{EV}}.
+
+=== Tier ===
+{| class="wikitable"
+|-
+! Tier !! Note !! Available
+|-
+| 4 || grows anywhere || {{✓}}
+|-
+| 5 || needs sky || {{✗}}
+|}
+[[File:Foo.png|thumb|Ignored image]]
+[[Category:Crops]]

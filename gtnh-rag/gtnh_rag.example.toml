@@ -1,0 +1,32 @@
+# Copy this file to gtnh_rag.toml (gitignored) and adjust for your machine.
+# Missing keys fall back to the defaults in gtnh_rag/config.py.
+
+ollama_url = "http://localhost:11434"
+embed_url = "http://localhost:11434"      # point at a different Ollama host if embedding locally is too slow
+chat_model = "gemma4:31b-cloud"
+embed_model = "bge-m3"
+data_dir = "data"
+wiki_api = "https://wiki.gtnewhorizons.com/w/api.php"
+
+# Optional: local markdown notes (e.g. an Obsidian vault) to mix into the corpus as the
+# "vault" source. `fetch --source vault` copies *.md files under <vault_dir>/wiki/ and
+# <vault_dir>/frentes/ whose path or frontmatter `tags:` list contains "gtnh".
+# vault_dir = "/path/to/your/notes"
+
+# Optional: scp-style fallback for the questbook. Unused today (quests come from the
+# nesql dump below); kept for a future fallback path.
+# vps_questbook = "user@host:/path/to/World/betterquesting/QuestDatabase.json"
+
+# NEI handlers taken from the NERD dump (everything else comes from nesql)
+nerd_handlers = [
+  "gtneioreplugin.plugin.gregtech5.PluginGT5VeinStat",
+  "net.bdew.neiaddons.forestry.bees.BeeBreedingHandler",
+  "net.bdew.gendustry.nei.MutatronHandler",
+  "team.chisel.compat.nei.RecipeHandlerChisel",
+  "WayofTime.alchemicalWizardry.client.nei.NEIMeteorRecipeHandler",
+  "com.gtnewhorizons.aspectrecipeindex.nei.InfusionRecipeHandler",
+  "flaxbeard.thaumicexploration.integration.nei.ReplicatorHandler",
+  "enhancedlootbags",
+  "neicustomdiagram.diagramgroup.forge.worldgenloot",
+  "com.kuba6000.mobsinfo.nei.VillagerTradesHandler",
+]
