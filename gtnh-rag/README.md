@@ -7,7 +7,8 @@ commands: `search` (raw chunk retrieval), `ask` (chat-model answer with citation
 `recipe` (exact recipe/usage lookup by item name), plus `fetch`/`build` to (re)generate
 everything from raw sources.
 
-Corpus was built against pack **2.9.0-beta-2**. Recipe/item ids embedded in the nesql and
+Corpus was rebuilt against pack **2.9.0-RC-2** on 2026-10-05 (first built against
+2.9.0-beta-2). Recipe/item ids embedded in the nesql and
 NERD dumps are specific to the game session that produced them (ids change across pack
 versions) — a dump from a different pack version will not decode correctly against
 another pack's world.

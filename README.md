@@ -58,5 +58,6 @@ walkthrough is in [`docs/dump-mods.md`](docs/dump-mods.md). The NBT-reading tool
 the offline wheel-extraction fallback in the "Setup" section of
 [`ae2-tools/README.md`](ae2-tools/README.md).
 
-Pack version these were built and verified against: **2.9.0-beta-2** corpus, **2.9.0-beta-3**
-world. MIT licensed — see [`LICENSE`](LICENSE).
+Pack versions: the corpus was rebuilt against **2.9.0-RC-2** on 2026-10-05 (world also on
+RC-2). The tools were first built and verified against a **2.9.0-beta-2** corpus and a
+**2.9.0-beta-3** world. MIT licensed — see [`LICENSE`](LICENSE).
