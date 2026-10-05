@@ -12,7 +12,7 @@ from .embed import Embedder
 from .search import Hit, search
 
 SYSTEM_PROMPT = (
-    "Você é um assistente do modpack GregTech: New Horizons (GTNH), versão 2.9.0-beta-2. "
+    "Você é um assistente do modpack GregTech: New Horizons (GTNH), versão 2.9.0-RC-2. "
     "Responda SEMPRE em pt-BR. Use apenas os trechos fornecidos; não invente números, receitas ou mecânicas. "
     "Cite cada afirmação com o número do trecho entre colchetes, como [1] ou [2][3]. "
     "Se os trechos não cobrem a pergunta, diga isso explicitamente e responda só o que estiver coberto. "
