@@ -18,6 +18,8 @@ chat-answer command (which talks to your own Ollama).
 Each directory has its own README with prerequisites, usage and caveats. Read the one you
 need — they are self-contained.
 
+Planned work is listed in [`ROADMAP.md`](ROADMAP.md).
+
 ## Where to start
 
 - **"What's the recipe for X / how does Y work?"** → `gtnh-rag/`. Heaviest setup (two
