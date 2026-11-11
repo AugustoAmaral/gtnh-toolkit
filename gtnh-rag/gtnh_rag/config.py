@@ -9,9 +9,10 @@ from pathlib import Path
 
 @dataclass
 class Config:
-    ollama_url: str = "http://localhost:11434"
+    chat_url: str = "https://openrouter.ai/api/v1/chat/completions"
+    chat_model: str = "google/gemma-4-31b-it"
+    chat_provider: list[str] = field(default_factory=lambda: ["parasail/fp8"])
     embed_url: str = "http://localhost:11434"
-    chat_model: str = "gemma4:31b-cloud"
     embed_model: str = "bge-m3"
     data_dir: Path = Path("data")
     wiki_api: str = "https://wiki.gtnewhorizons.com/w/api.php"

@@ -40,8 +40,10 @@ another pack's world.
 - [Ollama](https://ollama.com) reachable at `embed_url`, with the `bge-m3` embedding model
   pulled (`ollama pull bge-m3`). Any Ollama-compatible embedding model works; `bge-m3` is
   multilingual and was used to build and test the corpus.
-- Optionally, a chat model in Ollama for `ask` (default `gemma4:31b-cloud`, an
-  ollama.com cloud model; any local or cloud chat model configured in Ollama works).
+- Optionally, an OpenRouter API key (`OPENROUTER_API_KEY`) for `ask` (default model
+  `google/gemma-4-31b-it`, pinned to one provider via `chat_provider` so OpenRouter never
+  load-balances a cached conversation onto a different provider). Bring your own key:
+  https://openrouter.ai/settings/keys
 - Two client-side mod dumps to populate `data/raw/nesql/` and `data/raw/nerd/` (see
   below). Neither mod has a release compatible with GTNH 2.9, so both must be built from
   source — see [`../docs/dump-mods.md`](../docs/dump-mods.md).
@@ -107,9 +109,10 @@ back to the `Config` defaults in `gtnh_rag/config.py`:
 
 | Key | Default | Notes |
 |---|---|---|
-| `ollama_url` | `http://localhost:11434` | chat endpoint |
-| `embed_url` | `http://localhost:11434` | embedding endpoint (may differ from `ollama_url`, e.g. a beefier GPU host) |
-| `chat_model` | `gemma4:31b-cloud` | used by `ask` |
+| `chat_url` | `https://openrouter.ai/api/v1/chat/completions` | chat endpoint (OpenAI-compatible) |
+| `chat_model` | `google/gemma-4-31b-it` | used by `ask` |
+| `chat_provider` | `["parasail/fp8"]` | OpenRouter provider pin for `ask`; keep it a single entry so requests never get load-balanced onto a different (cache-missing) provider |
+| `embed_url` | `http://localhost:11434` | embedding endpoint (may differ from `chat_url`'s host, e.g. a beefier GPU host) |
 | `embed_model` | `bge-m3` | used by `search`/`ask`/`build` |
 | `data_dir` | `data` | relative to cwd; also overridable with the `GTNH_RAG_DATA_DIR` env var |
 | `wiki_api` | `https://wiki.gtnewhorizons.com/w/api.php` | MediaWiki API |

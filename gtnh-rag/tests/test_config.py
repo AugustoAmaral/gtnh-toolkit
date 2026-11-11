@@ -5,7 +5,9 @@ from gtnh_rag.config import Config, load_config
 
 def test_defaults_when_file_missing(tmp_path):
     cfg = load_config(tmp_path / "nope.toml")
-    assert cfg.chat_model == "gemma4:31b-cloud"
+    assert cfg.chat_url == "https://openrouter.ai/api/v1/chat/completions"
+    assert cfg.chat_model == "google/gemma-4-31b-it"
+    assert cfg.chat_provider == ["parasail/fp8"]
     assert cfg.embed_model == "bge-m3"
     assert cfg.data_dir == Path("data")
     assert cfg.vault_dir is None
@@ -24,7 +26,13 @@ def test_reads_file_and_paths(tmp_path):
     assert cfg.embed_url == "http://gpu:11434"
     assert cfg.data_dir == Path("/tmp/d")
     assert cfg.nerd_handlers == ["a", "b"]
-    assert cfg.ollama_url == "http://localhost:11434"  # untouched default
+    assert cfg.chat_url == "https://openrouter.ai/api/v1/chat/completions"  # untouched default
+
+
+def test_chat_provider_overridable(tmp_path):
+    p = tmp_path / "gtnh_rag.toml"
+    p.write_text('chat_provider = ["other/provider"]\n')
+    assert load_config(p).chat_provider == ["other/provider"]
 
 
 def test_vault_dir_unset_by_empty_string(tmp_path):

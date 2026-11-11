@@ -4,9 +4,9 @@ Tooling for running, diagnosing and repairing a **GregTech: New Horizons 2.9** s
 (Minecraft 1.7.10, Forge + lwjgl3ify under Java 21) and the bases inside it.
 
 Everything here was written to solve a concrete problem on a private server and then
-generalized. Nothing calls a paid API, nothing phones home, and every tool runs offline
-except the knowledge-base fetcher (which talks to the public GTNH wiki) and the optional
-chat-answer command (which talks to your own Ollama).
+generalized. Nothing phones home, and every tool runs offline except the knowledge-base
+fetcher (which talks to the public GTNH wiki) and the optional chat-answer commands
+(`gtnh-rag ask`, `ae2-tools gemma-review`), which call OpenRouter with your own API key.
 
 | Directory | What it gives you |
 |---|---|
@@ -35,8 +35,9 @@ Python 3.11+ (3.11 for `tomllib`) and standard library only, except:
 
 - `nbtlib==2.0.4` for anything that reads NBT (save files) — `ae2-tools/`, two of the
   `perf-tools/` scripts.
-- `gtnh-rag/` additionally needs an Ollama instance for embeddings (`bge-m3`) and, if you
-  want prose answers, a chat model. A GPU makes the embedding pass hours instead of days.
+- `gtnh-rag/` additionally needs a local Ollama instance for embeddings (`bge-m3`) — a GPU
+  makes the embedding pass hours instead of days — and, for prose answers (`ask`) or the
+  optional `gemma-review` second opinion, your own OpenRouter API key (`OPENROUTER_API_KEY`).
 
 ## Warnings worth repeating
 

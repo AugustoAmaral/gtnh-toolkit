@@ -156,7 +156,7 @@ def cmd_ask(cfg: Config, args) -> int:
     if not cfg.index_path.exists():
         raise RuntimeError(f"no index at {cfg.index_path}; run `gtnh-rag build` first")
     conn = open_index(cfg.index_path)
-    ask_mod.ask(conn, make_embedder(cfg), cfg.ollama_url, args.model or cfg.chat_model, args.query, k=args.k)
+    ask_mod.ask(conn, make_embedder(cfg), cfg.chat_url, args.model or cfg.chat_model, cfg.chat_provider, args.query, k=args.k)
     return 0
 
 
