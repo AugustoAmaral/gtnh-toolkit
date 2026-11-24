@@ -11,14 +11,32 @@ _HEADING = re.compile(r"^(={1,6})\s*(.*?)\s*\1\s*$")
 
 _COLOR = re.compile(r"\{\{Color\|[^|}]*\|([^}]*)\}\}", re.IGNORECASE)
 _TIER = re.compile(r"\{\{(ULV|LV|MV|HV|EV|IV|LuV|ZPM|UV|UHV|UEV|UIV|UMV|UXV|MAX)\}\}")
-_INFOBOX = re.compile(r"\{\{(Infobox\s+[^|{}]+?)\s*(\|.*?)?\}\}", re.IGNORECASE | re.DOTALL)
+# Infobox header only; the end is found by _infobox_end so nested {{...}} don't cut it short.
+_INFOBOX_START = re.compile(r"\{\{(Infobox\s+[^|{}]+?)\s*(?=\||\}\})", re.IGNORECASE)
+_BRACES = re.compile(r"\{\{|\}\}")
+
+
+def _infobox_end(text: str, pos: int) -> int | None:
+    """Index just past the '}}' closing an infobox whose body starts at ``pos``.
+
+    Counts nested '{{'/'}}' pairs. If they never balance (malformed page), falls back to the
+    first '}}', which is what a body without nested templates ends at anyway. None if no '}}'.
+    """
+    depth = 1
+    for m in _BRACES.finditer(text, pos):
+        depth += 1 if m.group() == "{{" else -1
+        if depth == 0:
+            return m.end()
+    first = text.find("}}", pos)
+    return first + 2 if first != -1 else None
 
 
 def _split_infobox_fields(body: str) -> list[str]:
-    """Split Infobox params on top-level '|', respecting [[...]] link boundaries."""
+    """Split Infobox params on top-level '|', respecting [[...]] and nested {{...}} boundaries."""
     fields: list[str] = []
     current: list[str] = []
     depth = 0
+    tdepth = 0
     i = 0
     while i < len(body):
         if body[i:i + 2] == "[[":
@@ -29,7 +47,15 @@ def _split_infobox_fields(body: str) -> list[str]:
             depth = max(0, depth - 1)
             current.append("]]")
             i += 2
-        elif body[i] == "|" and depth == 0:
+        elif body[i:i + 2] == "{{":
+            tdepth += 1
+            current.append("{{")
+            i += 2
+        elif body[i:i + 2] == "}}":
+            tdepth = max(0, tdepth - 1)
+            current.append("}}")
+            i += 2
+        elif body[i] == "|" and depth == 0 and tdepth == 0:
             fields.append("".join(current))
             current = []
             i += 1
@@ -40,20 +66,33 @@ def _split_infobox_fields(body: str) -> list[str]:
     return fields
 
 
-def _infobox_repl(m: re.Match) -> str:
-    name = m.group(1).strip()
-    rest = m.group(2) or ""
+def _infobox_repl(name: str, rest: str) -> str:
+    name = name.strip()
     if rest.startswith("|"):
         rest = rest[1:]
     lines = [f"{name}:"]
     for field in _split_infobox_fields(rest) if rest else []:
-        if "=" not in field:
+        if "=" not in field.split("{{", 1)[0]:  # key=value only when '=' precedes any nested template
             continue
         k, v = field.split("=", 1)
         k, v = k.strip(), v.strip()
         if v:
             lines.append(f"{k}: {v}")
     return "\n".join(lines)
+
+
+def _replace_infoboxes(text: str) -> str:
+    out: list[str] = []
+    pos = 0
+    while (m := _INFOBOX_START.search(text, pos)) is not None:
+        end = _infobox_end(text, m.end())
+        if end is None:
+            break
+        out.append(text[pos:m.start()])
+        out.append(_infobox_repl(m.group(1), text[m.end():end - 2]))
+        pos = end
+    out.append(text[pos:])
+    return "".join(out)
 
 
 def _convert_table(lines: list[str]) -> list[str]:
@@ -88,7 +127,7 @@ def wikitext_to_markdown(text: str) -> str:
     text = _COLOR.sub(lambda m: m.group(1), text)
     text = _TIER.sub(lambda m: m.group(1), text)
     text = text.replace("{{✓}}", "yes").replace("{{✗}}", "no")
-    text = _INFOBOX.sub(_infobox_repl, text)
+    text = _replace_infoboxes(text)
 
     # Drop templates (loop until no more changes, max 10 passes).
     for _ in range(10):

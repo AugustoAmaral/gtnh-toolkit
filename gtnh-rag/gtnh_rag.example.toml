@@ -1,9 +1,13 @@
 # Copy this file to gtnh_rag.toml (gitignored) and adjust for your machine.
 # Missing keys fall back to the defaults in gtnh_rag/config.py.
 
-ollama_url = "http://localhost:11434"
 embed_url = "http://localhost:11434"      # point at a different Ollama host if embedding locally is too slow
-chat_model = "gemma4:31b-cloud"
+chat_url = "https://openrouter.ai/api/v1/chat/completions"
+chat_model = "google/gemma-4-31b-it"
+# OpenRouter provider pin: bring your own API key (OPENROUTER_API_KEY env var) and, optionally,
+# your own provider. Pinning to one provider avoids OpenRouter load-balancing across providers,
+# which would otherwise miss the prompt cache on every request that lands on a different one.
+chat_provider = ["parasail/fp8"]
 embed_model = "bge-m3"
 data_dir = "data"
 wiki_api = "https://wiki.gtnewhorizons.com/w/api.php"

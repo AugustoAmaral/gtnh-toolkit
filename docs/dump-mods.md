@@ -21,7 +21,8 @@ Neither mod has a released build compatible with GTNH 2.9:
 
 There is no way around building both from source. The facts, versions and numbers below
 come from one real run against pack **2.9.0-beta-2** (world state on
-**2.9.0-beta-3**), done on 2026-09-06. Gradle provisions its own JDKs (Zulu 8/17/21) for
+**2.9.0-beta-3**), done on 2026-09-06, and a re-run against **2.9.0-RC-2** on 2026-10-05.
+Gradle provisions its own JDKs (Zulu 8/17/21) for
 both builds — you do not need a system `java` install to build them, only whatever your
 OS needs to run Gradle itself.
 
@@ -47,7 +48,13 @@ OS needs to run Gradle itself.
   commit `b5b896e`.
 - Patch: in `build.gradle.kts`, bump the `retrofuturagradle` plugin version from `1.3.35`
   to `1.4.9`. The pinned `1.3.35` fails against a current Gradle; `1.4.9` builds cleanly.
-  No other source change is needed.
+  No other source change is needed. Optionally, bump the mod versions in
+  `gradle.properties` (`neiVersion`, `gregTech5Version`, `mobsInfoVersion`, …) to the ones
+  the target instance ships, so the jar is compiled against the same APIs it will run
+  against. The RC-2 re-run did this (NEI `2.8.155-GTNH`, GT5U `5.09.54.205`, …) and it
+  built with no source change. Maven version strings can differ from the versions in
+  `mods/`: the RC-2 pack ships Mobs-Info `0.6.0`, but the GTNH Maven only has
+  `0.6.0-GTNH` (check `https://nexus.gtnewhorizons.com/repository/public/com/github/GTNewHorizons/<Mod>/maven-metadata.xml`).
 - Build:
 
   ```sh
@@ -75,9 +82,9 @@ OS needs to run Gradle itself.
      `gtnhconvention` convention-plugin setup (the one current GTNH mod templates use),
      and take `gradle.properties` from the current GTNH mod template.
   2. In `dependencies.gradle`, bump `NotEnoughItems` and `GT5-Unofficial` to the versions
-     the *target instance's* `mods/` actually ships (in the reference run: `NotEnoughItems
-     2.8.111-GTNH` and `GT5-Unofficial 5.09.54.20` — treat these as an example, not a
-     pin; match your own instance).
+     the *target instance's* `mods/` actually ships (beta-2 run: `NotEnoughItems
+     2.8.111-GTNH` and `GT5-Unofficial 5.09.54.20`; RC-2 run: `2.8.155-GTNH` and
+     `5.09.54.205` — treat these as examples, not pins; match your own instance).
   3. One source consequence of the template migration: the generated `Tags` class no
      longer exposes `MODID`/`MODNAME`. Replace those references with the literal strings
      `notenoughrecipedumps` and `NotEnoughRecipeDumps` in the `@Mod` annotation in
@@ -120,7 +127,10 @@ the same version) do not necessarily agree on what a given id means.
    expected, see [Troubleshooting](#troubleshooting).
 5. Run NERD: NEI → Tools → Dumps → **Recipes**, then also **Recipe Stacks**. Takes about
    5 minutes. Output lands in the instance's `dumps/` directory: `recipes.json`
-   (~540 MB) and `recipes_stacks.json` (~11 MB).
+   (~540 MB) and `recipes_stacks.json` (~11 MB). Wait for the dump to finish before
+   copying: in the RC-2 run the first attempt stalled mid-write and left a truncated
+   `recipes.json` (116 MB, cut mid-string). Check that the file ends with `]}` and parses
+   as JSON before feeding it to `build`.
 
 ## 4. Wiring the dumps into gtnh-rag
 

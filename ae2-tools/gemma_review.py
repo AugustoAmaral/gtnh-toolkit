@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Second opinion from a cheap local LLM (Gemma 4 via `omp -p --no-tools --no-session --model gemma4`) on the
+"""Second opinion from Gemma 4 via OpenRouter (`omp -p --no-tools --no-session --model openrouter/google/gemma-4-31b-it`) on the
 residue of review_matcher.py: every pattern the matcher rated MISMATCH or NO_RECIPE_FOUND, plus a CONTROL GROUP
 of 40 patterns rated MATCH (the model is not told which are controls).  Controls the model calls DIFFERENT measure
 its hallucination rate.  LLM verdicts never overwrite the matcher's: they are recorded side by side.
@@ -20,7 +20,7 @@ BATCH = 8
 TRIES = 3
 N_CONTROLS = 40
 SEED = 20260912
-MODEL = 'gemma4'
+MODEL = 'openrouter/google/gemma-4-31b-it'  # pinned to the Parasail provider in ~/.omp/agent/models.yml; avoid "gemma4" (ambiguous fuzzy match, used to hit Ollama Cloud)
 
 INSTRUCTIONS = """You compare Applied Energistics 2 encoded patterns from a Minecraft GregTech modpack (GTNH) with candidate recipes taken from the pack's recipe database. Notation: "not consumed: X" = X is required but not consumed; "circuit N" = programmed circuit N; "(+N alt.)" = N other items are accepted in that slot; "mB" = millibuckets of fluid; "→" separates inputs from outputs.
 

@@ -67,3 +67,46 @@ def test_infobox_tier_and_checkmark_templates():
     assert "Can be bred at HV but requires EV." in md
     assert "yes" in md
     assert "Any casing" in md
+
+
+def test_infobox_keeps_fields_after_nested_template():
+    wikitext = "{{Infobox Multiblock|name=LFTR|tier={{TIER|HV}}|size=7 x 7 x 4|eut=2048}}\nBody text."
+    md = wikitext_to_markdown(wikitext)
+    assert md == "Infobox Multiblock:\nname: LFTR\ntier:\nsize: 7 x 7 x 4\neut: 2048\nBody text.\n"
+
+
+def test_multiline_infobox_with_deeply_nested_template():
+    wikitext = (
+        "{{Infobox Machine\n|name=Assembler\n|recipe={{Recipe|in={{Item|Steel Plate}}|out=Hull}}\n"
+        "|voltage=128\n}}\n== Usage ==\nPut plates in."
+    )
+    md = wikitext_to_markdown(wikitext)
+    assert "voltage: 128" in md
+    assert "in:" not in md and "out:" not in md  # params of the nested template are not infobox fields
+    assert md.endswith("## Usage\nPut plates in.\n")
+
+
+def test_nested_template_does_not_swallow_the_next_infobox():
+    md = wikitext_to_markdown("{{Infobox A|x={{TIER|EV}}|y=1}} and {{Infobox B|z=2}} end")
+    assert "y: 1" in md and "Infobox B:" in md and "z: 2" in md
+
+
+def test_nested_template_next_to_links_in_infobox():
+    md = wikitext_to_markdown("{{Infobox Item|a=[[Thorium|Th]] {{TIER|IV}}|b=[[Fluid|fl]]|c=3}}")
+    assert md == "Infobox Item:\na: Th\nb: fl\nc: 3\n"
+
+
+def test_infobox_without_nested_templates_converts_as_before():
+    # Output of the converter before nested-template support; must not change.
+    wikitext = (
+        "{{Infobox Multiblock\n|name=LFTR\n|tier={{IV}}\n|casing={{Color|gray|Any casing}}\n"
+        "|link=[[Thorium Dust|Th]]\n|empty=\n}}\nAfter."
+    )
+    md = wikitext_to_markdown(wikitext)
+    assert md == "Infobox Multiblock:\nname: LFTR\ntier: IV\ncasing: Any casing\nlink: Th\nAfter.\n"
+    assert wikitext_to_markdown("{{Infobox Foo}}") == "Infobox Foo:\n"
+
+
+def test_unclosed_infobox_is_left_alone():
+    wikitext = "{{Infobox A|a={{TIER|HV|b=2\nBody."
+    assert wikitext_to_markdown(wikitext) == wikitext + "\n"

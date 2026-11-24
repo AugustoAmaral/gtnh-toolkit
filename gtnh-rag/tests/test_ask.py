@@ -3,10 +3,13 @@ import json
 
 import requests
 
-from gtnh_rag.ask import ask, build_messages, format_sources, stream_chat
+from gtnh_rag.ask import ask, build_messages, format_sources, get_api_key, stream_chat
 from gtnh_rag.chunk import Chunk
 from gtnh_rag.index import embed_missing, open_index, upsert_chunks
 from gtnh_rag.search import Hit
+
+CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
+PROVIDER = ["parasail/fp8"]
 
 HITS = [
     Hit("1", "wiki", "LFTR", "Usage", "LFTR > Usage\nBurns thorium salt.", 0.5),
@@ -17,6 +20,12 @@ DOCS = [
     Chunk("wiki", "LFTR", "Usage", "LFTR > Usage\nThe Liquid Fluoride Thorium Reactor burns thorium salt for power."),
     Chunk("recipe", "Recipe: LFTR", "Helium", "Recipe: LFTR > Helium\n2x Thorium Dust -> 200 mB Helium | 2048 EU/t EV"),
 ]
+
+
+def _sse(chunks):
+    lines = [f"data: {json.dumps(c)}".encode() for c in chunks]
+    lines.append(b"data: [DONE]")
+    return lines
 
 
 def test_build_messages_numbers_excerpts_and_asks_for_pt_br():
@@ -33,36 +42,39 @@ def test_format_sources():
 
 
 def test_stream_chat_yields_content_pieces():
-    lines = [json.dumps({"message": {"content": "Olá"}, "done": False}), json.dumps({"message": {"content": " mundo"}, "done": True})]
+    lines = _sse([
+        {"choices": [{"delta": {"content": "Olá"}}]},
+        {"choices": [{"delta": {"content": " mundo"}}]},
+    ])
 
     class Resp:
         status_code = 200
-        ok = True
 
         def iter_lines(self):
-            yield from (l.encode() for l in lines)
-
-        def raise_for_status(self):
-            pass
+            yield from lines
 
     class Session:
-        def post(self, url, json=None, timeout=None, stream=None):
-            assert url.endswith("/api/chat") and json["stream"] is True and json["model"] == "m"
+        def post(self, url, json=None, headers=None, timeout=None, stream=None):
+            assert url == CHAT_URL
+            assert json["stream"] is True and json["model"] == "m"
+            assert json["provider"] == {"only": PROVIDER, "allow_fallbacks": False}
+            assert headers["Authorization"] == "Bearer k"
             return Resp()
 
-    assert "".join(stream_chat("http://h:11434", "m", [{"role": "user", "content": "x"}], session=Session())) == "Olá mundo"
+    result = "".join(stream_chat(CHAT_URL, "m", [{"role": "user", "content": "x"}], PROVIDER, "k", session=Session()))
+    assert result == "Olá mundo"
 
 
 def test_stream_chat_wraps_connection_errors():
     class Session:
-        def post(self, url, json=None, timeout=None, stream=None):
+        def post(self, url, json=None, headers=None, timeout=None, stream=None):
             raise requests.ConnectionError("refused")
 
     try:
-        list(stream_chat("http://h:11434", "m", [{"role": "user", "content": "x"}], session=Session()))
+        list(stream_chat(CHAT_URL, "m", [{"role": "user", "content": "x"}], PROVIDER, "k", session=Session()))
         assert False, "should have raised RuntimeError"
     except RuntimeError as e:
-        assert "http://h:11434" in str(e) and "m" in str(e)
+        assert CHAT_URL in str(e) and "m" in str(e)
 
 
 def test_stream_chat_surfaces_stream_error_line():
@@ -70,17 +82,14 @@ def test_stream_chat_surfaces_stream_error_line():
         status_code = 200
 
         def iter_lines(self):
-            yield json.dumps({"error": "model 'foo' not found"}).encode()
-
-        def raise_for_status(self):
-            pass
+            yield b'data: {"error": {"message": "model \'foo\' not found"}}'
 
     class Session:
-        def post(self, url, json=None, timeout=None, stream=None):
+        def post(self, url, json=None, headers=None, timeout=None, stream=None):
             return Resp()
 
     try:
-        list(stream_chat("http://h:11434", "m", [{"role": "user", "content": "x"}], session=Session()))
+        list(stream_chat(CHAT_URL, "m", [{"role": "user", "content": "x"}], PROVIDER, "k", session=Session()))
         assert False, "should have raised RuntimeError"
     except RuntimeError as e:
         assert "model 'foo' not found" in str(e)
@@ -93,18 +102,29 @@ def test_stream_chat_http_error():
         def iter_lines(self):
             return iter([])
 
-        def raise_for_status(self):
-            pass
-
     class Session:
-        def post(self, url, json=None, timeout=None, stream=None):
+        def post(self, url, json=None, headers=None, timeout=None, stream=None):
             return Resp()
 
     try:
-        list(stream_chat("http://h:11434", "m", [{"role": "user", "content": "x"}], session=Session()))
+        list(stream_chat(CHAT_URL, "m", [{"role": "user", "content": "x"}], PROVIDER, "k", session=Session()))
         assert False, "should have raised RuntimeError"
     except RuntimeError as e:
         assert "500" in str(e)
+
+
+def test_get_api_key_from_env(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
+    assert get_api_key() == "env-key"
+
+
+def test_get_api_key_raises_without_env(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    try:
+        get_api_key()
+        assert False, "expected RuntimeError"
+    except RuntimeError as exc:
+        assert "OPENROUTER_API_KEY" in str(exc)
 
 
 def test_ask_end_to_end(tmp_path, fake_embedder):
@@ -112,23 +132,23 @@ def test_ask_end_to_end(tmp_path, fake_embedder):
     upsert_chunks(conn, DOCS)
     embed_missing(conn, fake_embedder)
 
-    lines = [
-        json.dumps({"message": {"content": "Olá"}, "done": False}),
-        json.dumps({"message": {"content": " mundo"}, "done": True}),
-    ]
+    lines = _sse([
+        {"choices": [{"delta": {"content": "Olá"}}]},
+        {"choices": [{"delta": {"content": " mundo"}}]},
+    ])
 
     class Resp:
         status_code = 200
 
         def iter_lines(self):
-            yield from (l.encode() for l in lines)
+            yield from lines
 
     class Session:
-        def post(self, url, json=None, timeout=None, stream=None):
+        def post(self, url, json=None, headers=None, timeout=None, stream=None):
             return Resp()
 
     buf = io.StringIO()
-    result = ask(conn, fake_embedder, "http://h:11434", "m", "thorium", k=2, out=buf, session=Session())
+    result = ask(conn, fake_embedder, CHAT_URL, "m", PROVIDER, "thorium", k=2, out=buf, session=Session(), api_key="k")
 
     assert result == "Olá mundo"
     text = buf.getvalue()

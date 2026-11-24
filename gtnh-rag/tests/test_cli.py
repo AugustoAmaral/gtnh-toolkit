@@ -6,6 +6,7 @@ from pathlib import Path
 
 from gtnh_rag.cli import main
 from gtnh_rag.config import load_config
+from gtnh_rag.fetch import Pruned
 
 FIX = Path(__file__).parent / "fixtures"
 
@@ -172,7 +173,7 @@ def test_build_refuses_mass_prune_without_force(tmp_path, monkeypatch, capsys, f
 def test_fetch_vault_optional(tmp_path, monkeypatch, capsys):
     cfg = tmp_path / "gtnh_rag.toml"
     cfg.write_text(f'data_dir = "{tmp_path / "data"}"\n')
-    monkeypatch.setattr("gtnh_rag.cli.fetch_wiki", lambda api, out_dir: (0, []))
+    monkeypatch.setattr("gtnh_rag.cli.fetch_wiki", lambda api, out_dir, force_prune=False: (0, [], Pruned()))
 
     assert main(["--config", str(cfg), "fetch", "--source", "vault"]) == 1
     err = capsys.readouterr().err
@@ -189,9 +190,81 @@ def test_fetch_vault_copies_when_configured(tmp_path, monkeypatch, capsys):
     (notes / "x.md").write_text("---\ntags: [gtnh]\n---\n# X\nbody")
     cfg = tmp_path / "gtnh_rag.toml"
     cfg.write_text(f'data_dir = "{tmp_path / "data"}"\nvault_dir = "{tmp_path / "notes"}"\n')
-    monkeypatch.setattr("gtnh_rag.cli.fetch_wiki", lambda api, out_dir: (0, []))
+    monkeypatch.setattr("gtnh_rag.cli.fetch_wiki", lambda api, out_dir, force_prune=False: (0, [], Pruned()))
 
     assert main(["--config", str(cfg), "fetch", "--source", "vault"]) == 0
     out = capsys.readouterr().out
     assert "vault: 1 pages copied" in out
     assert (tmp_path / "data" / "raw" / "vault" / "wiki__x.md").exists()
+
+
+def _search_titles(cfg, capsys, query):
+    assert main(["--config", str(cfg), "search", query, "--json", "-k", "20"]) == 0
+    return {h["doc_title"] for h in json.loads(capsys.readouterr().out)}
+
+
+def test_untagged_vault_note_disappears_from_search(tmp_path, monkeypatch, capsys, fake_embedder):
+    notes = tmp_path / "notes" / "wiki"
+    notes.mkdir(parents=True)
+    for name in ("alpha", "beta", "gamma"):
+        (notes / f"{name}.md").write_text(f"---\ntags: [gtnh]\n---\n# Note {name}\nplasma {name} turbine")
+    cfg = tmp_path / "gtnh_rag.toml"
+    cfg.write_text(f'data_dir = "{tmp_path / "data"}"\nvault_dir = "{tmp_path / "notes"}"\nembed_model = "fake"\n')
+    monkeypatch.setattr("gtnh_rag.cli.make_embedder", lambda c, m=None, u=None: fake_embedder)
+
+    assert main(["--config", str(cfg), "fetch", "--source", "vault"]) == 0
+    assert main(["--config", str(cfg), "build"]) == 0
+    capsys.readouterr()
+    assert "Note beta" in _search_titles(cfg, capsys, "plasma beta turbine")
+
+    (notes / "beta.md").write_text("---\ntags: [personal]\n---\n# Note beta\nplasma beta turbine")
+    assert main(["--config", str(cfg), "fetch", "--source", "vault"]) == 0
+    assert "vault: 2 pages copied, 1 stale removed" in capsys.readouterr().out
+    assert main(["--config", str(cfg), "build"]) == 0
+    capsys.readouterr()
+    assert _search_titles(cfg, capsys, "plasma beta turbine") == {"Note alpha", "Note gamma"}
+
+
+def test_page_removed_from_wiki_disappears_from_search(tmp_path, monkeypatch, capsys, fake_embedder):
+    from test_fetch import ListedSession
+
+    wiki = ListedSession(["Fusion Reactor", "Plasma Turbine", "Naquadah"])
+    monkeypatch.setattr("gtnh_rag.fetch._session", lambda s: wiki)
+    monkeypatch.setattr("gtnh_rag.fetch.time.sleep", lambda s: None)
+    monkeypatch.setattr("gtnh_rag.cli.make_embedder", lambda c, m=None, u=None: fake_embedder)
+    cfg = tmp_path / "gtnh_rag.toml"
+    cfg.write_text(f'data_dir = "{tmp_path / "data"}"\nembed_model = "fake"\n')
+
+    assert main(["--config", str(cfg), "fetch", "--source", "wiki"]) == 0
+    assert main(["--config", str(cfg), "build"]) == 0
+    capsys.readouterr()
+    assert "Naquadah" in _search_titles(cfg, capsys, "new Naquadah")
+
+    wiki.titles.remove("Naquadah")
+    assert main(["--config", str(cfg), "fetch", "--source", "wiki"]) == 0
+    assert "wiki: 2 pages written, 0 failed, 1 stale removed" in capsys.readouterr().out
+    manifest = json.loads((tmp_path / "data" / "raw" / "manifest.json").read_text())
+    assert manifest["wiki"]["removed"] == 1
+    assert main(["--config", str(cfg), "build"]) == 0
+    capsys.readouterr()
+    assert "Naquadah" not in _search_titles(cfg, capsys, "new Naquadah")
+
+
+def test_fetch_refuses_mass_removal_and_exits_1(tmp_path, monkeypatch, capsys):
+    from test_fetch import ListedSession
+
+    wiki = ListedSession(["A", "B", "C", "D"])
+    monkeypatch.setattr("gtnh_rag.fetch._session", lambda s: wiki)
+    monkeypatch.setattr("gtnh_rag.fetch.time.sleep", lambda s: None)
+    cfg = tmp_path / "gtnh_rag.toml"
+    cfg.write_text(f'data_dir = "{tmp_path / "data"}"\n')
+    assert main(["--config", str(cfg), "fetch", "--source", "wiki"]) == 0
+
+    wiki.titles = ["A"]
+    assert main(["--config", str(cfg), "fetch", "--source", "wiki"]) == 1
+    err = capsys.readouterr().err
+    assert "refusing to remove 3/4 raw wiki files" in err and "--force-prune" in err
+    assert len(list((tmp_path / "data" / "raw" / "wiki").glob("*.wikitext"))) == 4
+
+    assert main(["--config", str(cfg), "fetch", "--source", "wiki", "--force-prune"]) == 0
+    assert [p.name for p in (tmp_path / "data" / "raw" / "wiki").glob("*.wikitext")] == ["A.wikitext"]

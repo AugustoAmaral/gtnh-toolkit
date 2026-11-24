@@ -7,7 +7,8 @@ commands: `search` (raw chunk retrieval), `ask` (chat-model answer with citation
 `recipe` (exact recipe/usage lookup by item name), plus `fetch`/`build` to (re)generate
 everything from raw sources.
 
-Corpus was built against pack **2.9.0-beta-2**. Recipe/item ids embedded in the nesql and
+Corpus was rebuilt against pack **2.9.0-RC-2** on 2026-10-05 (first built against
+2.9.0-beta-2). Recipe/item ids embedded in the nesql and
 NERD dumps are specific to the game session that produced them (ids change across pack
 versions) — a dump from a different pack version will not decode correctly against
 another pack's world.
@@ -18,9 +19,23 @@ another pack's world.
   over cached embeddings, fused with reciprocal rank fusion (RRF). Works with FTS alone if
   embeddings are missing or incomplete (a warning is printed to stderr).
 - **Index** (`gtnh_rag/index.py`): a single SQLite file (`data/index.sqlite`) holding
-  `chunks(id, source, doc_title, section, text, sha256)`, an FTS5 virtual table, and an
-  `embeddings(chunk_id, model, vector)` table keyed by `(sha256, model)` — unchanged chunks
-  are never re-embedded, so `build` is safely resumable and incremental.
+  `chunks(id, source, doc_title, section, text)`, where `id` is the first 16 hex digits of
+  the sha256 of `source|doc_title|section|text`; an FTS5 mirror `chunks_fts(doc_title,
+  section, text)` kept in sync by triggers; `embeddings(chunk_id, model, vector)` keyed by
+  `(chunk_id, model)`, with `vector` the raw float32 embedding; and `embeddings_version(model,
+  token)` (see the vector cache below). Since the id is derived from the content, unchanged
+  chunks keep their id and are never re-embedded, so `build` is safely resumable and
+  incremental; an edited chunk is a new id, and the old one is pruned with its embedding.
+- **Vector cache** (`gtnh_rag/vector_cache.py`): the normalized embedding matrix is kept in
+  `data/index.sqlite.<model>.vectors` and memory-mapped by each `search`/`ask` process, so
+  no process has to rebuild it from SQLite. The index carries a per-model version token
+  (`embeddings_version`, kept current by triggers on `embeddings`); the file is rewritten only
+  when that model's embeddings were added, replaced or pruned. `build` does that at the end
+  for the configured `embed_model` (printing `vector cache: written` or `up to date`), so the
+  first search after a build is already fast; a search only rebuilds it if the index was
+  changed some other way. It costs about as much disk as the vectors themselves (~390 MB for
+  ~95k `bge-m3` chunks), is safe to delete at any time, and a file for a model you no longer
+  use can simply be removed.
 - **Recipes** (`gtnh_rag/nesql.py`, `gtnh_rag/recipes.py`): the nesql-exporter HSQLDB script
   is imported almost verbatim into a second SQLite file (`data/recipes.sqlite`), giving an
   exact-lookup tool (`gtnh-rag recipe`) independent of the RAG index — no model involved,
@@ -39,8 +54,10 @@ another pack's world.
 - [Ollama](https://ollama.com) reachable at `embed_url`, with the `bge-m3` embedding model
   pulled (`ollama pull bge-m3`). Any Ollama-compatible embedding model works; `bge-m3` is
   multilingual and was used to build and test the corpus.
-- Optionally, a chat model in Ollama for `ask` (default `gemma4:31b-cloud`, an
-  ollama.com cloud model; any local or cloud chat model configured in Ollama works).
+- Optionally, an OpenRouter API key (`OPENROUTER_API_KEY`) for `ask` (default model
+  `google/gemma-4-31b-it`, pinned to one provider via `chat_provider` so OpenRouter never
+  load-balances a cached conversation onto a different provider). Bring your own key:
+  https://openrouter.ai/settings/keys
 - Two client-side mod dumps to populate `data/raw/nesql/` and `data/raw/nerd/` (see
   below). Neither mod has a release compatible with GTNH 2.9, so both must be built from
   source — see [`../docs/dump-mods.md`](../docs/dump-mods.md).
@@ -85,7 +102,13 @@ and item ids are internal database ids assigned at dump time, not stable across 
 
 `fetch --source wiki|vault|all` (default `all`) downloads the wiki via the MediaWiki API
 and, if `vault_dir` is configured, copies local notes; `--source vault` with no
-`vault_dir` set is a no-op that exits non-zero.
+`vault_dir` set is a no-op that exits non-zero. `fetch` also removes raw files whose source
+is gone: wiki pages no longer listed on the wiki, and vault copies whose note was deleted or
+lost the `gtnh` tag. Pages that merely failed to download this time keep their previous
+copy, and nothing is removed if the page listing itself fails. Like `build`, it refuses to
+remove more than half of a source's raw files (a truncated listing or an unmounted vault
+looks the same as "everything was deleted") and exits non-zero; `--force-prune` confirms.
+Removed files leave the index on the next `build`.
 
 `build --skip-embed` populates `recipes.sqlite` and `index.sqlite` without calling the
 embedder — useful to check chunk counts before committing to the (slow) embedding pass.
@@ -106,9 +129,10 @@ back to the `Config` defaults in `gtnh_rag/config.py`:
 
 | Key | Default | Notes |
 |---|---|---|
-| `ollama_url` | `http://localhost:11434` | chat endpoint |
-| `embed_url` | `http://localhost:11434` | embedding endpoint (may differ from `ollama_url`, e.g. a beefier GPU host) |
-| `chat_model` | `gemma4:31b-cloud` | used by `ask` |
+| `chat_url` | `https://openrouter.ai/api/v1/chat/completions` | chat endpoint (OpenAI-compatible) |
+| `chat_model` | `google/gemma-4-31b-it` | used by `ask` |
+| `chat_provider` | `["parasail/fp8"]` | OpenRouter provider pin for `ask`; keep it a single entry so requests never get load-balanced onto a different (cache-missing) provider |
+| `embed_url` | `http://localhost:11434` | embedding endpoint (may differ from `chat_url`'s host, e.g. a beefier GPU host) |
 | `embed_model` | `bge-m3` | used by `search`/`ask`/`build` |
 | `data_dir` | `data` | relative to cwd; also overridable with the `GTNH_RAG_DATA_DIR` env var |
 | `wiki_api` | `https://wiki.gtnewhorizons.com/w/api.php` | MediaWiki API |
@@ -134,7 +158,8 @@ at any Ollama host running `bge-m3` — local CPU, a local GPU, or a remote mach
 
 After a pack update: regenerate the nesql and NERD dumps in the client, copy them into
 `data/raw/`, then re-run `fetch` and `build`. Unchanged chunks keep their embeddings, so
-only the delta gets re-embedded.
+only the delta gets re-embedded, and pages that `fetch` removed from `data/raw/` are pruned
+from the index.
 
 ## Tests
 

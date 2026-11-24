@@ -33,7 +33,7 @@ Naming rule (deterministic, conservative; full prose also written into the outpu
      recorded in `computed` for comparison. An interface with no patterns gets `?` plus a note of
      what it stores (`config`/`inv`/`storage`), never a guessed name.
 
-Caveat: recipes.sqlite is a NEI dump of GTNH 2.9.0-beta-2; the world may be on beta-3. A recipe
+Caveat: recipes.sqlite is a NEI dump of one pack version; the world may be on another. A recipe
 that changed between versions can produce a false `?` here — always sanity-check `?` results by
 eye before concluding a pattern/interface is actually broken.
 
@@ -884,7 +884,7 @@ def render_md(records, cats, control, dim_label, generated, source_dump):
           f"{esc(pat_cell(r))} | {esc(r['proposal'] or ('? (calc: ' + r['computed'] + ')' if r['computed'] else '?'))} | {esc(evid(r))} |")
     L("")
     L("## Caveats")
-    L("- The recipe dump is from beta-2; the world may be on a different version. Divergences become `?`.")
+    L("- The recipe dump may be from a different pack version than the world. Divergences become `?`.")
     L("- `controller_guess` is the nearest controller by Chebyshev distance; touching multiblocks of the same type "
       "can swap controllers with each other (same name, so the proposed name does not change).")
     L("- Stock interfaces (only `config`, no patterns) get no name from the rule — the reason lists what they stock.")
