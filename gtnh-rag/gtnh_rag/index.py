@@ -27,6 +27,17 @@ CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
 END;
 CREATE TABLE IF NOT EXISTS embeddings(
   chunk_id TEXT NOT NULL, model TEXT NOT NULL, vector BLOB NOT NULL, PRIMARY KEY(chunk_id, model));
+CREATE TABLE IF NOT EXISTS embeddings_version(model TEXT PRIMARY KEY, token BLOB NOT NULL);
+CREATE TRIGGER IF NOT EXISTS embeddings_ver_ai AFTER INSERT ON embeddings BEGIN
+  INSERT OR REPLACE INTO embeddings_version(model, token) VALUES (new.model, randomblob(16));
+END;
+CREATE TRIGGER IF NOT EXISTS embeddings_ver_ad AFTER DELETE ON embeddings BEGIN
+  INSERT OR REPLACE INTO embeddings_version(model, token) VALUES (old.model, randomblob(16));
+END;
+CREATE TRIGGER IF NOT EXISTS embeddings_ver_au AFTER UPDATE ON embeddings BEGIN
+  INSERT OR REPLACE INTO embeddings_version(model, token) VALUES (old.model, randomblob(16));
+  INSERT OR REPLACE INTO embeddings_version(model, token) VALUES (new.model, randomblob(16));
+END;
 """
 
 
@@ -34,7 +45,16 @@ def open_index(path: Path) -> sqlite3.Connection:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA journal_mode=WAL")
+    had_version = conn.execute("SELECT 1 FROM sqlite_master WHERE name='embeddings_version'").fetchone()
     conn.executescript(_SCHEMA)
+    if not had_version:
+        # Index from before the version triggers: give every existing model a fresh token so no
+        # vector cache written against some other copy of the file can ever match it.
+        with conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO embeddings_version(model, token) "
+                "SELECT model, randomblob(16) FROM (SELECT DISTINCT model FROM embeddings)"
+            )
     return conn
 
 
@@ -87,6 +107,20 @@ def embed_missing(conn: sqlite3.Connection, embedder: Embedder, batch: int = 64,
         if progress:
             progress(done, len(rows))
     return done
+
+
+def embeddings_version(conn: sqlite3.Connection, model: str) -> bytes | None:
+    """Opaque token that changes whenever any embedding row of ``model`` is written or deleted.
+
+    Maintained by the ``embeddings_ver_*`` triggers (seeded by ``open_index`` for older files),
+    so it holds for every writer of the file. ``b""`` means the model has never had embeddings;
+    None means the connection was not opened with ``open_index`` and there is no version table.
+    """
+    try:
+        row = conn.execute("SELECT token FROM embeddings_version WHERE model=?", (model,)).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return bytes(row[0]) if row else b""
 
 
 def load_matrix(conn: sqlite3.Connection, model: str) -> tuple[list[str], np.ndarray]:

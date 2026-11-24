@@ -5,11 +5,13 @@ import re
 import sqlite3
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
+from . import vector_cache
 from .embed import Embedder
-from .index import load_matrix
+from .index import embeddings_version, load_matrix
 
 _PHRASE = re.compile(r'"([^"]+)"')
 _TOKEN = re.compile(r"[\w]+", re.UNICODE)
@@ -52,14 +54,49 @@ class _MatrixCache:
 _cache = _MatrixCache()
 
 
+def _db_path(conn: sqlite3.Connection) -> Path | None:
+    for _, name, file in conn.execute("PRAGMA database_list"):
+        if name == "main":
+            return Path(file) if file else None
+    return None
+
+
+def load_vectors(conn: sqlite3.Connection, model: str, cache=_cache) -> tuple[list[str], np.ndarray]:
+    """``load_matrix(conn, model)``, memoized in-process and on disk next to the index file.
+
+    Both layers are keyed by the index's ``embeddings_version`` token, so they are reused until an
+    embedding of ``model`` is added, replaced or deleted. The on-disk copy is what makes repeated
+    ``gtnh-rag search`` processes cheap; failing to write it only costs speed.
+    """
+    db = _db_path(conn)
+    began = not conn.in_transaction
+    if began:
+        conn.execute("BEGIN")  # one read snapshot: the token must describe the rows we load
+    try:
+        token = embeddings_version(conn, model)
+        if token is None:  # no version table (not opened via open_index): nothing to key a cache on
+            return load_matrix(conn, model)
+        key = (str(db) if db else id(conn), model, token)
+        if cache.key == key:
+            return cache.value
+        path = vector_cache.cache_path(db, model) if db else None
+        value = vector_cache.read(path, model, token) if path else None
+        if value is None:
+            value = load_matrix(conn, model)
+            if path and value[0]:
+                try:
+                    vector_cache.write(path, model, token, *value)
+                except OSError as exc:
+                    print(f"warning: could not write vector cache {path}: {exc}", file=sys.stderr)
+    finally:
+        if began:
+            conn.execute("COMMIT")
+    cache.key, cache.value = key, value
+    return value
+
+
 def vector_search(conn: sqlite3.Connection, embedder: Embedder, query: str, n: int = 50, cache=_cache) -> list[str]:
-    count, max_rowid = conn.execute(
-        "SELECT COUNT(*), COALESCE(MAX(rowid), 0) FROM embeddings WHERE model=?", (embedder.model,)
-    ).fetchone()
-    key = (id(conn), embedder.model, count, max_rowid)
-    if cache.key != key:
-        cache.key, cache.value = key, load_matrix(conn, embedder.model)
-    ids, mat = cache.value
+    ids, mat = load_vectors(conn, embedder.model, cache)
     if not ids:
         return []
     q = np.asarray(embedder.embed([query])[0], dtype=np.float32)
@@ -79,10 +116,8 @@ def rrf(rankings: list[list[str]], k: int = 60) -> list[tuple[str, float]]:
 
 
 def search(conn: sqlite3.Connection, embedder: Embedder, query: str, k: int = 10) -> list[Hit]:
-    covered, total = conn.execute(
-        "SELECT (SELECT COUNT(*) FROM embeddings WHERE model=?), (SELECT COUNT(*) FROM chunks)",
-        (embedder.model,),
-    ).fetchone()
+    covered = len(load_vectors(conn, embedder.model)[0])
+    total = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
     if covered < total:
         suffix = " (FTS-only)" if covered == 0 else ""
         print(f"warning: vector index covers {covered}/{total} chunks for model {embedder.model}{suffix}", file=sys.stderr)
