@@ -14,11 +14,12 @@ from .config import Config, load_config
 from .corpus import quest_chunks, recipe_chunks, vault_chunks, wiki_chunks
 from .embed import OllamaEmbedder
 from .fetch import fetch_vault, fetch_wiki, update_manifest
-from .index import count_by_source, embed_missing, open_index, prune_missing, upsert_chunks
+from .index import count_by_source, embed_missing, embeddings_version, open_index, prune_missing, upsert_chunks
 from .nerd import load_stacks, nerd_chunks
 from .nesql import import_script
 from .recipes import find_items, format_recipe, recipes_producing, recipes_using
-from .search import search
+from . import vector_cache
+from .search import load_vectors, search
 
 
 def make_embedder(cfg: Config, model: str | None = None, url: str | None = None):
@@ -33,12 +34,26 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _report_prune(what: str, why: str, pruned) -> bool:
+    """Print refused removals to stderr; True if the mass-removal guard kicked in."""
+    if not pruned.refused:
+        return False
+    print(
+        f"refusing to remove {len(pruned.refused)}/{pruned.total} raw {what} files ({why}); "
+        "re-run with --force-prune to confirm",
+        file=sys.stderr,
+    )
+    return True
+
+
 def cmd_fetch(cfg: Config, args) -> int:
     failed_any = False
     if args.source in ("wiki", "all"):
-        written, failed = fetch_wiki(cfg.wiki_api, cfg.raw_dir / "wiki")
-        print(f"wiki: {written} pages written, {len(failed)} failed")
-        update_manifest(cfg.raw_dir, {"wiki": {"api": cfg.wiki_api, "pages": written, "failed": failed}})
+        written, failed, pruned = fetch_wiki(cfg.wiki_api, cfg.raw_dir / "wiki", force_prune=args.force_prune)
+        print(f"wiki: {written} pages written, {len(failed)} failed, {len(pruned.removed)} stale removed")
+        failed_any |= _report_prune("wiki", "no longer listed on the wiki - incomplete listing?", pruned)
+        update_manifest(cfg.raw_dir, {"wiki": {"api": cfg.wiki_api, "pages": written, "failed": failed,
+                                               "removed": len(pruned.removed)}})
         failed_any |= bool(failed)
     if args.source in ("vault", "all"):
         if cfg.vault_dir is None:
@@ -47,9 +62,11 @@ def cmd_fetch(cfg: Config, args) -> int:
                 return 1
             print("vault: no vault_dir configured, skipping")
         else:
-            copied = fetch_vault(cfg.vault_dir, cfg.raw_dir / "vault")
-            print(f"vault: {len(copied)} pages copied")
-            update_manifest(cfg.raw_dir, {"vault": {"dir": str(cfg.vault_dir), "pages": len(copied)}})
+            copied, pruned = fetch_vault(cfg.vault_dir, cfg.raw_dir / "vault", force_prune=args.force_prune)
+            print(f"vault: {len(copied)} pages copied, {len(pruned.removed)} stale removed")
+            failed_any |= _report_prune("vault", "note gone or no longer tagged gtnh - vault_dir moved or unmounted?", pruned)
+            update_manifest(cfg.raw_dir, {"vault": {"dir": str(cfg.vault_dir), "pages": len(copied),
+                                                    "removed": len(pruned.removed)}})
     return 1 if failed_any else 0
 
 
@@ -129,12 +146,34 @@ def cmd_build(cfg: Config, args) -> int:
     pruned = prune_missing(conn, all_ids, sources=prune_sources)
     total = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
     print(f"index: {inserted_total} new chunks, {pruned} pruned, {total} total")
-    if args.skip_embed:
-        return exit_code
-    embedder = make_embedder(cfg, args.embed_model, args.embed_url)
-    done = embed_missing(conn, embedder, progress=lambda d, n: print(f"\rembedding {d}/{n}", end="", file=sys.stderr))
-    print(f"\nembedded {done} chunks with {embedder.model}")
+    if not args.skip_embed:
+        embedder = make_embedder(cfg, args.embed_model, args.embed_url)
+        done = embed_missing(conn, embedder, progress=lambda d, n: print(f"\rembedding {d}/{n}", end="", file=sys.stderr))
+        print(f"\nembedded {done} chunks with {embedder.model}")
+    _warm_vector_cache(conn, cfg)
     return exit_code
+
+
+def _file_id(path: Path):
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return st.st_ino, st.st_mtime_ns, st.st_size
+
+
+def _warm_vector_cache(conn: sqlite3.Connection, cfg: Config) -> None:
+    """Bring the search model's vector cache up to date now, not on the first search.
+
+    Same file and token check as search: rewritten only if that model's embeddings changed.
+    """
+    path = vector_cache.cache_path(cfg.index_path, cfg.embed_model)
+    before = _file_id(path)
+    ids, _ = load_vectors(conn, cfg.embed_model)
+    if not ids or vector_cache.read(path, cfg.embed_model, embeddings_version(conn, cfg.embed_model)) is None:
+        return  # no embeddings yet, or the write failed (load_vectors already warned)
+    state = "up to date" if _file_id(path) == before else "written"
+    print(f"vector cache: {state} ({len(ids)} vectors, {cfg.embed_model})")
 
 
 def cmd_search(cfg: Config, args) -> int:
@@ -195,6 +234,8 @@ def main(argv: list[str] | None = None) -> int:
 
     f = sub.add_parser("fetch", help="download raw sources into data/raw")
     f.add_argument("--source", choices=["wiki", "vault", "all"], default="all")
+    f.add_argument("--force-prune", action="store_true",
+                   help="allow removing more than half of a source's raw files (pages gone from the wiki / untagged notes)")
     f.set_defaults(fn=cmd_fetch)
 
     b = sub.add_parser("build", help="build corpus, index and recipes.sqlite from data/raw")

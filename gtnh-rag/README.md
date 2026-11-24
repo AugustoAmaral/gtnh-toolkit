@@ -19,9 +19,23 @@ another pack's world.
   over cached embeddings, fused with reciprocal rank fusion (RRF). Works with FTS alone if
   embeddings are missing or incomplete (a warning is printed to stderr).
 - **Index** (`gtnh_rag/index.py`): a single SQLite file (`data/index.sqlite`) holding
-  `chunks(id, source, doc_title, section, text, sha256)`, an FTS5 virtual table, and an
-  `embeddings(chunk_id, model, vector)` table keyed by `(sha256, model)` — unchanged chunks
-  are never re-embedded, so `build` is safely resumable and incremental.
+  `chunks(id, source, doc_title, section, text)`, where `id` is the first 16 hex digits of
+  the sha256 of `source|doc_title|section|text`; an FTS5 mirror `chunks_fts(doc_title,
+  section, text)` kept in sync by triggers; `embeddings(chunk_id, model, vector)` keyed by
+  `(chunk_id, model)`, with `vector` the raw float32 embedding; and `embeddings_version(model,
+  token)` (see the vector cache below). Since the id is derived from the content, unchanged
+  chunks keep their id and are never re-embedded, so `build` is safely resumable and
+  incremental; an edited chunk is a new id, and the old one is pruned with its embedding.
+- **Vector cache** (`gtnh_rag/vector_cache.py`): the normalized embedding matrix is kept in
+  `data/index.sqlite.<model>.vectors` and memory-mapped by each `search`/`ask` process, so
+  no process has to rebuild it from SQLite. The index carries a per-model version token
+  (`embeddings_version`, kept current by triggers on `embeddings`); the file is rewritten only
+  when that model's embeddings were added, replaced or pruned. `build` does that at the end
+  for the configured `embed_model` (printing `vector cache: written` or `up to date`), so the
+  first search after a build is already fast; a search only rebuilds it if the index was
+  changed some other way. It costs about as much disk as the vectors themselves (~390 MB for
+  ~95k `bge-m3` chunks), is safe to delete at any time, and a file for a model you no longer
+  use can simply be removed.
 - **Recipes** (`gtnh_rag/nesql.py`, `gtnh_rag/recipes.py`): the nesql-exporter HSQLDB script
   is imported almost verbatim into a second SQLite file (`data/recipes.sqlite`), giving an
   exact-lookup tool (`gtnh-rag recipe`) independent of the RAG index — no model involved,
@@ -88,7 +102,13 @@ and item ids are internal database ids assigned at dump time, not stable across 
 
 `fetch --source wiki|vault|all` (default `all`) downloads the wiki via the MediaWiki API
 and, if `vault_dir` is configured, copies local notes; `--source vault` with no
-`vault_dir` set is a no-op that exits non-zero.
+`vault_dir` set is a no-op that exits non-zero. `fetch` also removes raw files whose source
+is gone: wiki pages no longer listed on the wiki, and vault copies whose note was deleted or
+lost the `gtnh` tag. Pages that merely failed to download this time keep their previous
+copy, and nothing is removed if the page listing itself fails. Like `build`, it refuses to
+remove more than half of a source's raw files (a truncated listing or an unmounted vault
+looks the same as "everything was deleted") and exits non-zero; `--force-prune` confirms.
+Removed files leave the index on the next `build`.
 
 `build --skip-embed` populates `recipes.sqlite` and `index.sqlite` without calling the
 embedder — useful to check chunk counts before committing to the (slow) embedding pass.
@@ -138,7 +158,8 @@ at any Ollama host running `bge-m3` — local CPU, a local GPU, or a remote mach
 
 After a pack update: regenerate the nesql and NERD dumps in the client, copy them into
 `data/raw/`, then re-run `fetch` and `build`. Unchanged chunks keep their embeddings, so
-only the delta gets re-embedded.
+only the delta gets re-embedded, and pages that `fetch` removed from `data/raw/` are pruned
+from the index.
 
 ## Tests
 
