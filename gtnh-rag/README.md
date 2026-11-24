@@ -102,7 +102,13 @@ and item ids are internal database ids assigned at dump time, not stable across 
 
 `fetch --source wiki|vault|all` (default `all`) downloads the wiki via the MediaWiki API
 and, if `vault_dir` is configured, copies local notes; `--source vault` with no
-`vault_dir` set is a no-op that exits non-zero.
+`vault_dir` set is a no-op that exits non-zero. `fetch` also removes raw files whose source
+is gone: wiki pages no longer listed on the wiki, and vault copies whose note was deleted or
+lost the `gtnh` tag. Pages that merely failed to download this time keep their previous
+copy, and nothing is removed if the page listing itself fails. Like `build`, it refuses to
+remove more than half of a source's raw files (a truncated listing or an unmounted vault
+looks the same as "everything was deleted") and exits non-zero; `--force-prune` confirms.
+Removed files leave the index on the next `build`.
 
 `build --skip-embed` populates `recipes.sqlite` and `index.sqlite` without calling the
 embedder — useful to check chunk counts before committing to the (slow) embedding pass.
@@ -152,7 +158,8 @@ at any Ollama host running `bge-m3` — local CPU, a local GPU, or a remote mach
 
 After a pack update: regenerate the nesql and NERD dumps in the client, copy them into
 `data/raw/`, then re-run `fetch` and `build`. Unchanged chunks keep their embeddings, so
-only the delta gets re-embedded.
+only the delta gets re-embedded, and pages that `fetch` removed from `data/raw/` are pruned
+from the index.
 
 ## Tests
 

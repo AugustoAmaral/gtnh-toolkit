@@ -34,12 +34,26 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _report_prune(what: str, why: str, pruned) -> bool:
+    """Print refused removals to stderr; True if the mass-removal guard kicked in."""
+    if not pruned.refused:
+        return False
+    print(
+        f"refusing to remove {len(pruned.refused)}/{pruned.total} raw {what} files ({why}); "
+        "re-run with --force-prune to confirm",
+        file=sys.stderr,
+    )
+    return True
+
+
 def cmd_fetch(cfg: Config, args) -> int:
     failed_any = False
     if args.source in ("wiki", "all"):
-        written, failed = fetch_wiki(cfg.wiki_api, cfg.raw_dir / "wiki")
-        print(f"wiki: {written} pages written, {len(failed)} failed")
-        update_manifest(cfg.raw_dir, {"wiki": {"api": cfg.wiki_api, "pages": written, "failed": failed}})
+        written, failed, pruned = fetch_wiki(cfg.wiki_api, cfg.raw_dir / "wiki", force_prune=args.force_prune)
+        print(f"wiki: {written} pages written, {len(failed)} failed, {len(pruned.removed)} stale removed")
+        failed_any |= _report_prune("wiki", "no longer listed on the wiki - incomplete listing?", pruned)
+        update_manifest(cfg.raw_dir, {"wiki": {"api": cfg.wiki_api, "pages": written, "failed": failed,
+                                               "removed": len(pruned.removed)}})
         failed_any |= bool(failed)
     if args.source in ("vault", "all"):
         if cfg.vault_dir is None:
@@ -48,9 +62,11 @@ def cmd_fetch(cfg: Config, args) -> int:
                 return 1
             print("vault: no vault_dir configured, skipping")
         else:
-            copied = fetch_vault(cfg.vault_dir, cfg.raw_dir / "vault")
-            print(f"vault: {len(copied)} pages copied")
-            update_manifest(cfg.raw_dir, {"vault": {"dir": str(cfg.vault_dir), "pages": len(copied)}})
+            copied, pruned = fetch_vault(cfg.vault_dir, cfg.raw_dir / "vault", force_prune=args.force_prune)
+            print(f"vault: {len(copied)} pages copied, {len(pruned.removed)} stale removed")
+            failed_any |= _report_prune("vault", "note gone or no longer tagged gtnh - vault_dir moved or unmounted?", pruned)
+            update_manifest(cfg.raw_dir, {"vault": {"dir": str(cfg.vault_dir), "pages": len(copied),
+                                                    "removed": len(pruned.removed)}})
     return 1 if failed_any else 0
 
 
@@ -218,6 +234,8 @@ def main(argv: list[str] | None = None) -> int:
 
     f = sub.add_parser("fetch", help="download raw sources into data/raw")
     f.add_argument("--source", choices=["wiki", "vault", "all"], default="all")
+    f.add_argument("--force-prune", action="store_true",
+                   help="allow removing more than half of a source's raw files (pages gone from the wiki / untagged notes)")
     f.set_defaults(fn=cmd_fetch)
 
     b = sub.add_parser("build", help="build corpus, index and recipes.sqlite from data/raw")
